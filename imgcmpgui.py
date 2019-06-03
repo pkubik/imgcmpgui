@@ -1,52 +1,67 @@
-from PySide2.QtCore import Qt, QPoint
-from PySide2.QtGui import QPixmap
-from PySide2.QtWidgets import QApplication, QWidget, QLabel, QSizePolicy, \
-    QScrollArea
-from PySide2.QtWidgets import QScrollBar, QGridLayout
+from PySide2.QtCore import Qt, QPoint, QSize
+from PySide2.QtGui import QPixmap, QColor, QPainter, QBrush, QWheelEvent, QMouseEvent
+from PySide2.QtWidgets import QApplication, QWidget, QOpenGLWidget
+from PySide2.QtWidgets import QGridLayout
 
 
-class ImageScrollArea(QScrollArea):
+def size_to_point(size: QSize) -> QPoint:
+    return QPoint(size.width(), size.height())
+
+
+class ImageScrollArea(QOpenGLWidget):
     def __init__(self, pixmap, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.label = QLabel("ITEM", self)
-        self.label.setStyleSheet("border: 1px solid red")
-        self.label.setScaledContents(True)
-        self.label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
-        self.label.setPixmap(pixmap)
-
-        self.setAcceptDrops(True)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setWidget(self.label)
+        self.pixmap = pixmap
+        self.background_brush = QBrush(QColor(50., 50., 60.))
 
         self.last_drag_pos = None
+        self.camera_position = QPoint(0., 0.)
+        self.scale_factor = 1.0
+
+    def paintEvent(self, event):
+        painter = QPainter()
+        painter.begin(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        painter.fillRect(event.rect(), self.background_brush)
+
+        painter.translate(self.camera_position.x(), self.camera_position.y())
+        painter.translate(self.pixmap.size().width() / 2, self.pixmap.size().height() / 2)
+        painter.scale(self.scale_factor, self.scale_factor)
+        painter.translate(-self.pixmap.size().width() / 2, -self.pixmap.size().height() / 2)
+        painter.drawPixmap(QPoint(0., 0.), self.pixmap)
+
+        painter.end()
+        event.accept()
 
     def is_dragged(self):
         return self.last_drag_pos is not None
 
-    def mousePressEvent(self, event):
+    def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.LeftButton:
             self.last_drag_pos = event.pos()
-            self.label.setStyleSheet("border: 1px solid blue")
+            event.accept()
 
-    def mouseReleaseEvent(self, event):
+    def mouseReleaseEvent(self, event: QMouseEvent):
         self.last_drag_pos = None
+        event.accept()
 
-    def mouseMoveEvent(self, event):
+    def mouseMoveEvent(self, event: QMouseEvent):
         if self.is_dragged():
             pos = event.pos()
             delta: QPoint = self.last_drag_pos - pos
             self.last_drag_pos = pos
 
-            self.scroll_by(delta.x(), delta.y())
+            self.camera_position -= delta
+            self.update()
+            event.accept()
 
-    def scroll_by(self, x, y):
-        v_scroll_bar: QScrollBar = self.verticalScrollBar()
-        h_scroll_bar: QScrollBar = self.horizontalScrollBar()
-
-        v_scroll_bar.setValue(v_scroll_bar.value() + y)
-        h_scroll_bar.setValue(h_scroll_bar.value() + x)
+    def wheelEvent(self, event: QWheelEvent):
+        increment = 0.01
+        self.scale_factor += event.angleDelta().y() / 8 * increment
+        self.update()
+        event.accept()
 
 
 class Window(QWidget):
@@ -59,11 +74,9 @@ class Window(QWidget):
         num_rows = 2 if num_items > 2 else 1
 
         self.setWindowTitle("MultiImgCmp")
+        self.resize(QSize(1024, 800))
 
         pixmap = QPixmap("testimg.png")
-
-        common_v_scroll_bar = QScrollBar()
-        common_h_scroll_bar = QScrollBar()
 
         self.layout = QGridLayout()
         for i in range(num_items):
@@ -71,9 +84,6 @@ class Window(QWidget):
             column = i // num_rows
 
             scroll_area = ImageScrollArea(pixmap)
-            scroll_area.setVerticalScrollBar(common_v_scroll_bar)
-            scroll_area.setHorizontalScrollBar(common_h_scroll_bar)
-
             self.layout.addWidget(scroll_area, row, column)
 
         self.setLayout(self.layout)
