@@ -1,4 +1,4 @@
-from PySide2.QtCore import Qt, QPoint, QSize
+from PySide2.QtCore import Qt, QPoint, QSize, Signal, QObject
 from PySide2.QtGui import QPixmap, QColor, QPainter, QBrush, QWheelEvent, QMouseEvent
 from PySide2.QtWidgets import QApplication, QWidget, QOpenGLWidget
 from PySide2.QtWidgets import QGridLayout
@@ -8,16 +8,29 @@ def size_to_point(size: QSize) -> QPoint:
     return QPoint(size.width(), size.height())
 
 
+class Camera(QObject):
+    transformed = Signal()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.position = QPoint(0., 0.)
+        self.scale_factor = 1.0
+
+
 class ImageScrollArea(QOpenGLWidget):
-    def __init__(self, pixmap, *args, **kwargs):
+    def __init__(self, camera: Camera, pixmap: QPixmap, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        self.camera = camera
         self.pixmap = pixmap
         self.background_brush = QBrush(QColor(50., 50., 60.))
 
         self.last_drag_pos = None
-        self.camera_position = QPoint(0., 0.)
-        self.scale_factor = 1.0
+
+        self.camera.transformed.connect(self.on_camera_transformed)
+
+    def on_camera_transformed(self):
+        self.update()
 
     def paintEvent(self, event):
         painter = QPainter()
@@ -26,9 +39,9 @@ class ImageScrollArea(QOpenGLWidget):
 
         painter.fillRect(event.rect(), self.background_brush)
 
-        painter.translate(self.camera_position.x(), self.camera_position.y())
+        painter.translate(self.camera.position.x(), self.camera.position.y())
         painter.translate(self.pixmap.size().width() / 2, self.pixmap.size().height() / 2)
-        painter.scale(self.scale_factor, self.scale_factor)
+        painter.scale(self.camera.scale_factor, self.camera.scale_factor)
         painter.translate(-self.pixmap.size().width() / 2, -self.pixmap.size().height() / 2)
         painter.drawPixmap(QPoint(0., 0.), self.pixmap)
 
@@ -53,14 +66,14 @@ class ImageScrollArea(QOpenGLWidget):
             delta: QPoint = self.last_drag_pos - pos
             self.last_drag_pos = pos
 
-            self.camera_position -= delta
-            self.update()
+            self.camera.position -= delta
+            self.camera.transformed.emit()
             event.accept()
 
     def wheelEvent(self, event: QWheelEvent):
         increment = 0.01
-        self.scale_factor += event.angleDelta().y() / 8 * increment
-        self.update()
+        self.camera.scale_factor += event.angleDelta().y() / 8 * increment
+        self.camera.transformed.emit()
         event.accept()
 
 
@@ -76,6 +89,7 @@ class Window(QWidget):
         self.setWindowTitle("MultiImgCmp")
         self.resize(QSize(1024, 800))
 
+        camera = Camera()
         pixmap = QPixmap("testimg.png")
 
         self.layout = QGridLayout()
@@ -83,7 +97,7 @@ class Window(QWidget):
             row = i % num_rows
             column = i // num_rows
 
-            scroll_area = ImageScrollArea(pixmap)
+            scroll_area = ImageScrollArea(camera, pixmap)
             self.layout.addWidget(scroll_area, row, column)
 
         self.setLayout(self.layout)
