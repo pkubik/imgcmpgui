@@ -17,15 +17,18 @@ class Camera(QObject):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._position = np.array([0., 0.])
+        self.position = np.array([0., 0.])
+
+        self._scale_index = 0.0
+        self.scale_base = 1.5
         self.scale_factor = 1.0
 
     def translate(self, vec: QPoint):
-        self._position += np.array(vec.toTuple(), dtype=np.float32) / self.scale_factor
+        self.position += np.array(vec.toTuple(), dtype=np.float32) / self.scale_factor
 
-    @property
-    def position(self) -> QPoint:
-        return QPoint(*self._position)
+    def zoom(self, value: float):
+        self._scale_index += value
+        self.scale_factor = self.scale_base ** self._scale_index
 
 
 class ImageScrollArea(QOpenGLWidget):
@@ -55,7 +58,9 @@ class ImageScrollArea(QOpenGLWidget):
         painter.translate(center_position)
         painter.scale(self.camera.scale_factor, self.camera.scale_factor)
         painter.translate(-center_position)
-        painter.translate(self.camera.position)
+
+        # Not using QPoint for smoother movement in large zoom (cause it uses integers instead of floats)
+        painter.translate(*self.camera.position)
 
         painter.drawPixmap(QPoint(0., 0.), self.pixmap)
 
@@ -85,8 +90,7 @@ class ImageScrollArea(QOpenGLWidget):
             event.accept()
 
     def wheelEvent(self, event: QWheelEvent):
-        increment = 0.01
-        self.camera.scale_factor += event.angleDelta().y() / 8 * increment
+        self.camera.zoom(event.angleDelta().y() / 8 / 15)
         self.camera.transformed.emit()
         event.accept()
 
