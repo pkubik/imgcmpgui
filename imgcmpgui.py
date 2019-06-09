@@ -1,7 +1,11 @@
+from typing import Optional
+
 from PySide2.QtCore import Qt, QPoint, QSize, Signal, QObject
 from PySide2.QtGui import QPixmap, QColor, QPainter, QBrush, QWheelEvent, QMouseEvent
 from PySide2.QtWidgets import QApplication, QWidget, QOpenGLWidget
 from PySide2.QtWidgets import QGridLayout
+
+import numpy as np
 
 
 def size_to_point(size: QSize) -> QPoint:
@@ -13,8 +17,15 @@ class Camera(QObject):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.position = QPoint(0., 0.)
+        self._position = np.array([0., 0.])
         self.scale_factor = 1.0
+
+    def translate(self, vec: QPoint):
+        self._position += np.array(vec.toTuple(), dtype=np.float32) / self.scale_factor
+
+    @property
+    def position(self) -> QPoint:
+        return QPoint(*self._position)
 
 
 class ImageScrollArea(QOpenGLWidget):
@@ -25,7 +36,7 @@ class ImageScrollArea(QOpenGLWidget):
         self.pixmap = pixmap
         self.background_brush = QBrush(QColor(50., 50., 60.))
 
-        self.last_drag_pos = None
+        self.last_drag_pos: Optional[QPoint] = None
 
         self.camera.transformed.connect(self.on_camera_transformed)
 
@@ -39,10 +50,13 @@ class ImageScrollArea(QOpenGLWidget):
 
         painter.fillRect(event.rect(), self.background_brush)
 
-        painter.translate(self.camera.position.x(), self.camera.position.y())
-        painter.translate(self.pixmap.size().width() / 2, self.pixmap.size().height() / 2)
+        center_position = size_to_point(event.rect().size()) / 2
+
+        painter.translate(center_position)
         painter.scale(self.camera.scale_factor, self.camera.scale_factor)
-        painter.translate(-self.pixmap.size().width() / 2, -self.pixmap.size().height() / 2)
+        painter.translate(-center_position)
+        painter.translate(self.camera.position)
+
         painter.drawPixmap(QPoint(0., 0.), self.pixmap)
 
         painter.end()
@@ -62,11 +76,11 @@ class ImageScrollArea(QOpenGLWidget):
 
     def mouseMoveEvent(self, event: QMouseEvent):
         if self.is_dragged():
-            pos = event.pos()
+            pos: QPoint = event.pos()
             delta: QPoint = self.last_drag_pos - pos
             self.last_drag_pos = pos
 
-            self.camera.position -= delta
+            self.camera.translate(-delta)
             self.camera.transformed.emit()
             event.accept()
 
@@ -81,7 +95,7 @@ class Window(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        self._build_interface(5)
+        self._build_interface(2)
 
     def _build_interface(self, num_items):
         num_rows = 2 if num_items > 2 else 1
